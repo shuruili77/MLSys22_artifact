@@ -91,4 +91,11 @@ We used the instructions in this [GitHub repo](https://github.com/XJay18/QuickDr
 
 ### Workflow and usage
 #### Uncompressed network training and weight pool generation
-The first step is to train uncompressed network to generate the 'pre-trained' weights that will be further used to generate weight pools. 
+The first step is to train uncompressed network to generate the 'pre-trained' weights that will be further used to generate weight pools. After training the next step is to generate the weight pool for this network by applying K-means clustering on the trained weights. The uncompressed model training and weight pool generation is combined into a single script. You just need to run the corresponding python scipt under 'Accuracy\accuracy_codes\original_model_training' to generate uncompressed weights and weight pools. 
+
+**Make sure to change the 'PATH' variable to the path you want the neural network weights to be stored and change the 'output_path' variable to the path you want to stored the generated weight pool. **
+
+Before running the scripts, you need to install Pytorch and *kmeans-pytorch* library (check software requirements).
+
+#### Weight pool network training
+
