@@ -1,6 +1,6 @@
 # MLSys22_artifact for Bit-serial Weight Pools
-Code for MLSys 2022 artifact evaluation 
-The experiment codes contains two parts, one is for runtime evaluation and the other is for neural network accruacy evaluation.
+Codes for MLSys 2022 artifact evaluation. 
+The experiment codes contain two parts, one is for runtime evaluation and the other is for neural network accruacy evaluation.
 
 ## Runtime evaluation
 ### Hardware requirements
@@ -23,7 +23,8 @@ Two microcontrollers are used:
 - weight-pool based convolution source codes: Runtime/weight_pool_runtime/CMSIS/NN/Source/ConvolutionFunctions/lut_convolve_zdim.c
 - Testbenches: /Runtime/weight_pool_runtime/CMSIS/NN/Tests/UnitTest/TestCases/benchmarks
 
-### Workflow and usage
+###  Workflow and usage
+
 #### Data generation
 **All test data required (described below) to evaluate the networks reported in the paper are already provided. Data generation is not needed for verifying the results. So this step can be skipped if you want to use pre-generated data.**
 
@@ -65,5 +66,29 @@ Then open the Options setting again to configure the debugger and target. First 
 
 After finishing the configuration, the next step is to start the debug session. The program will be loaded into the microcontroller and start execution. The runtime is measured by the built-in timer in uVision's debugger and layer-wise runtime can be measured by setting breakpoints accordingly. 
 
+#### Expected results
+Key results of runtime evaluation is shown is table 7 of the main paper. The results can be reproduced using the description above.
 
+## Accuracy evaluation
+### Hardware requirements
+- Large-VRAM GPU preferred for faster training and inference
 
+### Software requirements
+- Pytorch 1.9.0
+- Python 3.6.1 (Python 3.5+ should work)
+- kmeans-pytorch (for k-means clustering of pretrained weights, to install: `pip install kmeans-pytorch`)
+
+###  Useful paths
+- Scripts for training uncompressed neural networks and generating weight pools: 'Accuracy\accuracy_codes\original_model_training'
+- Scripts for training and evaluating weight pool networks: 'Accuracy\accuracy_codes\fw_training'
+
+### Network and datasets
+In the paper five neural networks and two datasets are evaluated. The five neural networks are Resnet-mlperf, Resnet-10, Resnet-14, MobileNet-v2 and TinyConv. Network definition can be found in the corresponding training scripts under  'Accuracy\accuracy_codes\original_model_training'. Two datasets are CIFAR-10 and QuickDraw-100. 
+#### CIFAR-10
+This dataset can be automatically downloaded when running the training scripts.
+#### QuickDraw-100
+We used the instructions in this [GitHub repo](https://github.com/XJay18/QuickDraw-pytorch) to download and generate the QuickDraw dataset for Pytorch. Since we use 100 categories, when generating the dataset the "-c" parameter should be set to 100. 
+
+### Workflow and usage
+#### Uncompressed network training and weight pool generation
+The first step is to train uncompressed network to generate the 'pre-trained' weights that will be further used to generate weight pools. 
