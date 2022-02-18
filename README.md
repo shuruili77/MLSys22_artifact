@@ -2,6 +2,8 @@
 Codes for MLSys 2022 artifact evaluation. 
 The experiment codes contain two parts, one is for runtime evaluation and the other is for neural network accuracy evaluation.
 
+This readme file contains detailed information on how to verify the results.
+
 ## Runtime evaluation
 ### Hardware requirements
 Two microcontrollers are used:
