@@ -1,4 +1,3 @@
-
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -27,12 +26,11 @@ import numpy as np
 import torchvision
 from torchvision.transforms import Compose
 
-torch.backends.cudnn.benchmark = True
 
-z_accuracy_list = []
+accuracy_list = []
 
-for pool_size in [64]:
-    cluster_path = "/content/drive/MyDrive/FWNN_data/resnet_cifar_clustercenter_zdim" + str(pool_size) + ".npy"
+for pool_size in [64,128]:
+    cluster_path = "/content/drive/MyDrive/FWNN_data/resnet10_cifar_clustercenter_zdim" + str(pool_size) + ".npy"
     clustercenter = np.load(cluster_path)
     clustercenter = torch.from_numpy(clustercenter)
 
@@ -202,15 +200,24 @@ for pool_size in [64]:
             #weight.data = select_kernel(weight.data,kernelpool)
             #weight = select_kernel(weight.data, model.filterpool_trainable)
             #weight = weight * coeff
-            #print(torch.max(input), torch.mean(torch.abs(input)))
-            '''
+            print(torch.max(input), torch.mean(torch.abs(input)))
             # for coefficients for each kernel
             weight = weight.permute(0,2,3,1)
             permuteshape = weight.shape
             #weight.data = select_kernel(weight.data,kernelpool_layer)
             weight.data = select_kernel_channelwise(weight.data,kernelpool)
-            weight = weight.permute(0,3,1,2)
             '''
+            #coefficients
+            weight = torch.reshape(weight, (int(weight.shape[0]*weight.shape[1]*weight.shape[2]*weight.shape[3]/8), 8))
+            coeff_repeat = coeff.unsqueeze(1)
+            coeff_repeat = coeff_repeat.repeat(1,8*coeff_groupsize)
+            coeff_repeat = coeff_repeat.reshape(weight.shape)
+            #print(coeff_repeat[-1])
+            weight = weight * coeff_repeat
+            weight = weight.reshape(permuteshape)
+            '''
+            weight = weight.permute(0,3,1,2)
+            
             # for coefficients for each kernel
             '''
             weight_shape = weight.shape
@@ -241,45 +248,6 @@ for pool_size in [64]:
 
         def forward(self, input):
             return self._conv_forward(input, self.weight, self.coeff)
-
-    class Linear_q(Module):
-        __constants__ = ['in_features', 'out_features']
-
-        def __init__(self, in_features, out_features, bias=True):
-            super(Linear_q, self).__init__()
-            self.in_features = in_features
-            self.out_features = out_features
-            self.weight = Parameter(torch.Tensor(out_features, in_features))#out features in number of neurons
-            #self.coeff = Parameter(torch.ones(int(out_features*in_features/(fixed_len*coeff_groupsize))))
-            if bias:
-                self.bias = Parameter(torch.Tensor(out_features))
-            else:
-                self.register_parameter('bias', None)
-            self.reset_parameters()
-
-        def reset_parameters(self):
-            init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-            if self.bias is not None:
-                fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
-                bound = 1 / math.sqrt(fan_in)
-                init.uniform_(self.bias, -bound, bound)
-                #init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-          
-
-        def forward(self, input):
-            #print(self.weight.shape)
-            weight = self.weight
-            weight = weight.unsqueeze(1).unsqueeze(1)
-            weight.data = select_kernel_channelwise(weight.data,kernelpool)
-            weight = weight.squeeze(1).squeeze(1)
-
-            return F.linear(input, weight, self.bias)
-
-        def extra_repr(self):
-            return 'in_features={}, out_features={}, bias={}'.format(
-                self.in_features, self.out_features, self.bias is not None
-            )
-
 
     __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
               'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -435,7 +403,7 @@ for pool_size in [64]:
                 norm_layer = nn.BatchNorm2d
             self._norm_layer = norm_layer
 
-            self.inplanes = 16
+            self.inplanes = 64
             self.dilation = 1
             if replace_stride_with_dilation is None:
                 # each element in the tuple indicates if we should replace
@@ -451,13 +419,13 @@ for pool_size in [64]:
             self.bn1 = norm_layer(self.inplanes)
             self.relu = nn.ReLU(inplace=True)
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-            self.layer1 = self._make_layer(block, 16, layers[0])
-            self.layer2 = self._make_layer(block, 32, layers[1], stride=2,
+            self.layer1 = self._make_layer(block, 64, layers[0])
+            self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
                                           dilate=replace_stride_with_dilation[0])
-            self.layer3 = self._make_layer(block, 64, layers[2], stride=2,dilate=replace_stride_with_dilation[1])
+            #self.layer3 = self._make_layer(block, 256, layers[2], stride=2,dilate=replace_stride_with_dilation[1])
             #self.layer4 = self._make_layer(block, 512, layers[3], stride=2,dilate=replace_stride_with_dilation[2])
             self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-            self.fc = Linear_q(64 * block.expansion, num_classes)
+            self.fc = nn.Linear(128 * block.expansion, num_classes)
 
             for m in self.modules():
                 if isinstance(m, nn.Conv2d):
@@ -512,7 +480,7 @@ for pool_size in [64]:
 
             x = self.layer1(x)
             x = self.layer2(x)
-            x = self.layer3(x)
+            #x = self.layer3(x)
             #x = self.layer4(x)
 
             x = self.avgpool(x)
@@ -547,7 +515,7 @@ for pool_size in [64]:
             pretrained (bool): If True, returns a model pre-trained on ImageNet
             progress (bool): If True, displays a progress bar of the download to stderr
         """
-        return _resnet('resnet18', BasicBlock, [2, 2, 2], pretrained, progress,
+        return _resnet('resnet18', BasicBlock, [2, 2], pretrained, progress,
                       **kwargs)
 
 
@@ -770,8 +738,7 @@ for pool_size in [64]:
     val_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size,drop_last=True,
                                             shuffle=False, pin_memory=False, num_workers=workers)
 
-    PATH = '/content/drive/MyDrive/data/resnet_cifar10.pth'
-    #PATH = '/content/drive/MyDrive/data/resnet_mlperf_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
+    PATH = '/content/drive/MyDrive/data/resnet10.pth'
     state_dict=torch.load(PATH)
     #load the weights from original network and copy to the new model
     params1 = state_dict#net.named_parameters()
@@ -782,19 +749,17 @@ for pool_size in [64]:
             dict_params2[name1].data.copy_(param1.data)
     model.load_state_dict(dict_params2)
     inferenceacc = validate(val_loader, model, criterion)
-    
+
     init_lr = 0.001
     decay_val = 0.2 #how much weight decay is applied when activated
-    #optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01,momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
+    optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
     best_prec1 = 0
     total_time = 0
-    SAVEPATH = '/content/drive/MyDrive/data/resnet_mlperf_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
+    SAVEPATH = '/content/drive/MyDrive/data/resnet10_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
 
-    for epoch in range(200):
+    for epoch in range(100):
         starttime = time.time()
-        #adjust_learning_rate(optimizer, epoch, init_lr, 20)
+        adjust_learning_rate(optimizer, epoch, init_lr, 20)
         #lr_schedule(optimizer, epoch)
 
         # train for one epoch
@@ -807,7 +772,7 @@ for pool_size in [64]:
         # remember best prec@1 and save checkpoint
         if (prec1 > best_prec1):
             #Save the weight for the best accuracy 
-            #torch.save(model.state_dict(), SAVEPATH)
+            torch.save(model.state_dict(), SAVEPATH)
             print("best accuracy achieved, weight saved, accuracy is ", prec1)
         best_prec1 = max(prec1, best_prec1)
         endtime = time.time()
@@ -815,7 +780,6 @@ for pool_size in [64]:
         total_time = total_time + elapsedtime
         total_time_h = total_time/3600
         print("epoch time is: ", elapsedtime, "s. Current best accuracy is ", best_prec1)
-        scheduler.step()
-    z_accuracy_list.append(best_prec1)
+    accuracy_list.append(best_prec1)
 
-print(z_accuracy_list)
+print(accuracy_list)

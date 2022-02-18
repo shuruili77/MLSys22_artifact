@@ -30,11 +30,6 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 
-torch.backends.cudnn.benchmark = True
-
-os.environ['CUDA_VISIBLE_DEVICES']='1'#use bizon's RTX3080 to train
-
-print(torch.cuda.device_count())
 
 cluster_path = "/home/shurui/FWNN/clustercenters/tinyconv_qd_clustercenter_zdim64.npy"
 clustercenter = np.load(cluster_path)
@@ -48,7 +43,8 @@ result_holder = []
 setup_holder = []
 
 maxval = 1
-for act_prec in [7,6,5,4,3]:
+for act_prec in [8]:
+  act_prec = act_prec-1 #adjust to fit the quantization funciton which effectively adds one more bit
   for psumbw in [16,8,4]: 
     temp_best = 0
     best_setup = None
@@ -121,20 +117,8 @@ for act_prec in [7,6,5,4,3]:
                 if not hasattr(self, 'padding_mode'):
                     self.padding_mode = 'zeros'
 
-        def quantization_pos_formal(input, n = 8, rangeq = 1):
-            #updated version so that the minimal interval are integer power of two, so it fits better with stream gen function and is more formal way to do quantization
-            maxpower = int(math.log(rangeq,2))
-            minpower = maxpower-(n)
-            max = rangeq-2**minpower
-            intv = (rangeq-2**minpower)/(2**n-1)
-            qunt = torch.round(torch.mul(input,(1/intv)))  #***use ceil instead of floor for small value of n to make sure that not all weights are modified to zero in the beginning, achieves good accuracy for small n
-            #the above line divide the whole tensor by the smallest interval (1/2**n-1), which is same as multiply with 2**n-1, then take the floor and finally multiply the whole tensor with the smallest interval
-            out = torch.mul(qunt,intv)
-            out = torch.clamp(out, min=0, max=max) #make sure the quantized version lies in the interval 0-1, if it's bigger than one just clamp it at one
-            return(out)
-
         def quantization_n_formal(input, n = 8, rangeq = 1):
-            #updated version so that the minimal interval are integer power of two, so it fits better with stream gen function and is more formal way to do quantization
+            #updated version so that the minimal interval are integer power of two, so it fits better with stream gen functio
             #support both positive and negative input, assumes a sign bit that not count into total bits
             maxpower = int(math.log(rangeq,2))
             minpower = maxpower-(n)
@@ -165,24 +149,6 @@ for act_prec in [7,6,5,4,3]:
                 result = torch.cat((result, bit),-1)#cat the bit result to result tensor
             return result #result should have a dimension of n contains a sign bit and n-1 actual bit
 
-        def bit_stream_gen_pos_round(input,prec,max_val):
-            #generate the 8-bit bit representation of input tensor, add an extra dimension to the end, of size n (inlcuidng sign bits)
-            #also need a sign bit
-            input = quantization_pos_formal(input,prec,max_val)
-            MSB_val = max_val/2
-            offset = math.log(MSB_val,2)
-            #Then 8 shift is [maxval/2,maxval/4, ...]
-            e = 0.0000001 # a very small number to covert the ouptut of torch.sign to desired form
-            #sign = torch.clamp(torch.sign(input+e), min = 0)#take the sign
-            sign = torch.sign(input)
-            input = torch.abs(input)
-            result = sign.unsqueeze(-1)#add one dimension to the tensors
-            for i in range(prec):
-                tmp = input - 2**(-i+offset) + e #will be positive if this bit is 1
-                bit = torch.clamp(torch.sign(tmp), min = 0).unsqueeze(-1) #0/1 bit 
-                input[tmp>0] = input[tmp>0] - 2**(-i+offset) #substract the value for those bit = 1
-                result = torch.cat((result, bit),-1)#cat the bit result to result tensor
-            return result #result should have a dimension of n contains a sign bit and n-1 actual bit
 
         def conv2d_lut_zdim_stride(input, weight, bias, max_val, act_prec, stride = 1):
             #version for z dimension weight sharing, modified from the code for xy dimension.

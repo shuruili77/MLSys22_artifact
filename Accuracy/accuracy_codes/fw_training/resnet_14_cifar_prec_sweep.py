@@ -1,4 +1,5 @@
 import torch
+import os
 from torch import Tensor
 import torch.nn as nn
 #from .utils import load_state_dict_from_url
@@ -30,12 +31,6 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 
-torch.backends.cudnn.benchmark = True
-
-os.environ['CUDA_VISIBLE_DEVICES']='0'#use bizon's RTX3080 to train
-
-print(torch.cuda.device_count())
-print(torch.cuda.get_device_name(0))
 
 cluster_path = "/home/shurui/FWNN/clustercenters/resnet14_cifar_clustercenter_zdim64.npy"
 clustercenter = np.load(cluster_path)

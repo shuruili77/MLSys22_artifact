@@ -7,12 +7,6 @@ from torch import utils
 from typing import Type, Any, Callable, Union, List, Optional
 import os
 import time
-import importlib
-import shutil
-import json
-from collections import OrderedDict
-import logging
-import argparse
 import numpy as np
 import random
 import torchvision
@@ -30,12 +24,7 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 
-torch.backends.cudnn.benchmark = True
 
-os.environ['CUDA_VISIBLE_DEVICES']='1'#use bizon's RTX3080 to train
-
-print(torch.cuda.device_count())
-print(torch.cuda.get_device_name(0))
 
 cluster_path = "/home/shurui/FWNN/clustercenters/resnet10_cifar_clustercenter_zdim64.npy"
 clustercenter = np.load(cluster_path)
@@ -52,7 +41,7 @@ act_config_all = [act_maxval_layer_arr_max, act_maxval_layer_arr_mid, act_maxval
 result_holder = []
 
 maxval = 1
-for act_prec in [8,7,6,5,4,3]:
+for act_prec in [8]:
   for psumbw in [16,8,4]: 
     temp_best = 0
     best_setup = None
@@ -358,11 +347,6 @@ for act_prec in [8,7,6,5,4,3]:
                 
 
             def _conv_forward(self, input, weight, coeff):
-                #input.data = quantization_n(input.data,4,2)
-                #if(self.layer_idx != 0):
-                #weight.data = select_kernel(weight.data,kernelpool)
-                #weight = select_kernel(weight.data, model.filterpool_trainable)
-                #weight = weight * coeff
                 act_max = act_config[self.layer_cnt]
                 #print(act_max,torch.min(input))
 
@@ -373,16 +357,6 @@ for act_prec in [8,7,6,5,4,3]:
                 permuteshape = weight.shape
                 #weight.data = select_kernel(weight.data,kernelpool_layer)
                 weight.data = select_kernel_channelwise(weight.data,kernelpool)
-                '''
-                #coefficients
-                weight = torch.reshape(weight, (int(weight.shape[0]*weight.shape[1]*weight.shape[2]*weight.shape[3]/8), 8))
-                coeff_repeat = coeff.unsqueeze(1)
-                coeff_repeat = coeff_repeat.repeat(1,8*coeff_groupsize)
-                coeff_repeat = coeff_repeat.reshape(weight.shape)
-                #print(coeff_repeat[-1])
-                weight = weight * coeff_repeat
-                weight = weight.reshape(permuteshape)
-                '''
                 weight = weight.permute(0,3,1,2)
                 
                 pad_width = math.floor(weight.shape[2]/2)

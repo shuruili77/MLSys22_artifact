@@ -30,12 +30,6 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 
-torch.backends.cudnn.benchmark = True
-
-os.environ['CUDA_VISIBLE_DEVICES']='0'#use bizon's RTX3080 to train
-
-print(torch.cuda.device_count())
-print(torch.cuda.get_device_name(0))
 
 cluster_path = "/home/shurui/FWNN/clustercenters/resnet14_cifar_clustercenter_zdim64.npy"
 clustercenter = np.load(cluster_path)
@@ -52,7 +46,7 @@ act_config_all = [act_maxval_layer_arr_max, act_maxval_layer_arr_mid, act_maxval
 result_holder = []
 
 maxval = 1
-for act_prec in [8,7,6,5,4,3]:
+for act_prec in [8]:
   for psumbw in [16,8,4]: 
     temp_best = 0
     best_setup = None

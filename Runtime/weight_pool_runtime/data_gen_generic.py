@@ -1235,7 +1235,8 @@ resnet_mlperf = [[32,3,3,16],[16,3,16,16],[16,3,16,16],[16,3,16,16],[16,3,16,16]
             [4,3,32,64],[4,3,64,64],[4,3,64,64],[4,3,64,64]]
 tiny_conv = [[32,5,3,32],[16,5,32,32],[8,5,32,64]]
 benchmarklayers = [[16,3,32,32], [16,3,64,64], [16,3,128,128], [16,3,192,192]]
-#network info format is [input size, filter size, number of channels, number of filters]
+#network info format is [input size, filter size (one dimension), number of channels, number of filters]
+
 
 networkname = 'benchmarklayers'
 selected_network = benchmarklayers

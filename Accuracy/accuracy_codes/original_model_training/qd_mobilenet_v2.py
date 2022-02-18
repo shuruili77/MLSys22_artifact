@@ -332,7 +332,7 @@ optimizer = torch.optim.SGD(model.parameters(), lr=0.01,
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=220)
 best_prec1 = 100
 total_time = 0
-SAVEPATH = '/home/shurui/FWNN/fixedpooltraining/weights/mobilenetv2_qd_s.pth'
+PATH = '/home/shurui/FWNN/fixedpooltraining/weights/mobilenetv2_qd_s.pth'
 '''
 state_dict=torch.load(SAVEPATH)
 model.load_state_dict(state_dict)
@@ -353,7 +353,7 @@ for epoch in range(220):
     # remember best prec@1 and save checkpoint
     if (prec1 > best_prec1):
         #Save the weight for the best accuracy 
-        torch.save(model.state_dict(), SAVEPATH)
+        torch.save(model.state_dict(), PATH)
         print("best accuracy achieved, weight saved, accuracy is ", prec1)
     best_prec1 = max(prec1, best_prec1)
     endtime = time.time()
@@ -369,7 +369,6 @@ from kmeans_pytorch import kmeans
 version for you channel-wise pool
 '''
 combine_size = 8
-PATH = SAVEPATH
 state_dict=torch.load(PATH)
 for name, param in state_dict.items():
     if "conv" in name and param.shape[1] != 1 and name != 'conv1.weight':

@@ -1,4 +1,5 @@
 import torch
+import os
 from torch import Tensor
 import torch.nn as nn
 #from .utils import load_state_dict_from_url
@@ -30,9 +31,6 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 
-torch.backends.cudnn.benchmark = True
-
-os.environ['CUDA_VISIBLE_DEVICES']='1'#use bizon's RTX3080 to train
 
 print(torch.cuda.device_count())
 print(torch.cuda.get_device_name(0))
@@ -123,104 +121,9 @@ for act_prec in [4,3,2]:
               if not hasattr(self, 'padding_mode'):
                   self.padding_mode = 'zeros'
 
-      def bit_stream_gen(input,prec, max_val):
-          #generate the 8-bit bit representation of input tensor, add an extra dimension to the end, of size n (inlcuidng sign bits)
-          #also need a sign bit
-          MSB_val = max_val/2
-          offset = math.log(MSB_val,2)
-          #Then 8 shift is [maxval/2,maxval/4, ...]
-          e = 0.0000001 # a very small number to covert the ouptut of torch.sign to desired form
-          #sign = torch.clamp(torch.sign(input+e), min = 0)#take the sign
-          sign = torch.sign(input)
-          input = torch.abs(input)
-          result = sign.unsqueeze(-1)#add one dimension to the tensors
-          for i in range(prec-1):
-              tmp = input - 2**(-i+offset) + e #will be positive if this bit is 1
-              bit = torch.clamp(torch.sign(tmp), min = 0).unsqueeze(-1) #0/1 bit 
-              input[tmp>0] = input[tmp>0] - 2**(-i+offset) #substract the value for those bit = 1
-              result = torch.cat((result, bit),-1)#cat the bit result to result tensor
-          return result #result should have a dimension of n contains a sign bit and n-1 actual bit
-
-      def conv2d_lut_xydim(input, weight, bias, max_val, act_prec, stride):
-          #TODO: add bias support
-          #input  should have 5 dimensions, the last dimension is the bit dimension, weight is still normal weight, doesn't need to be bit-serialized
-          #inpud shape: [B,C,X,Y,bit], weight shape: [F,C,x,y]
-          #stride is assumed to be 1, and group convolution is not currently supported, bias not supported
-          #max-val is the maximum value (positive) that representable by the input, act_prec is the activation's bit width
-          #generate the scale vector for summing the bits , -1 because sign bit is excluded
-          #scale_vec = torch.zeros(act_prec-1)
-          scale_vec =  torch.cuda.FloatTensor(act_prec-1).fill_(0)
-          for i in range(act_prec-1):
-              if i == 0:
-                  scale_vec[i] = 1
-              else:
-                  scale_vec[i] = scale_vec[i-1]*2
-          scale_vec = torch.flip(scale_vec,[0])
-          scale_vec = scale_vec/(torch.max(scale_vec)/(max_val/2))
-          #print(scale_vec)
-          #reshape the xy dimension into a single dimension, and then permute it to the last dimension
-          #All bits, channels, filters and batches can be processed in parallel, and take the sum over
-          #channels and bits and xy dimension accordingly
-          #IN this scheme need to move the filter over image xy diemsnion, so that need this loop and corresponding index computation
-          #need to think how to compute the indexes in this case (consider padding and need 9 indexes in this same time)
-          input_shape = input.shape
-          weight_shape = weight.shape
-          k_size = weight.shape[2]
-          k_offset = math.floor(k_size/2)#offset of filter window 
-          #define the output, size should be [B,F,X,Y] 
-          #output = torch.zeros(input_shape[0], weight_shape[0], input_shape[2]-(k_size-k_offset), input_shape[3]-(k_size-k_offset))
-          output = torch.cuda.FloatTensor(input_shape[0], weight_shape[0], int((input_shape[2]-(k_size-k_offset))/stride), int((input_shape[3]-(k_size-k_offset))/stride)).fill_(0)
-          #input = input.reshape(input_shape[0], input_shape[1], input_shape[2]*input_shape[3, input_shape[4]]).permute(0,1,3,2)
-          #weight = weight.reshape(weight_shape[0], weight_shape[1], weight_shape[2]*weight_shape[3],weight_shape[4]).permute(0,1,3,2)
-          sign = input[...,0].unsqueeze(-1)#extract the sign of input, shappe is [B,C,X,Y,1]
-          input = input[...,1:] * sign.repeat(1,1,1,1,act_prec-1) #multiply the sign to the bit stream for later processing (so the addition results are correct)
-          input = input.permute(0,1,4,2,3)
-          #Now the input shape should be [B,C,bit,X,Y], weight shape should be [F,C,x,y]
-          #add one dimension after batch dimension to input for broadcasting operation
-          #Also add a dimension to weight tensor after second dimension, for the bit operation
-          input = input.unsqueeze(1)
-          weight = weight.unsqueeze(2)
-          #Now input shape should be [B,1,C,bit,X,Y], weight shape should be [F,C,1,x,y]
-          #Then loop through input plane to perform convolution, need to generate the required index for the entire window
-          #Can be implemented uisng slicing operation to get the desired input
-          for win_x in range(0,input_shape[2]-(k_size-k_offset), stride):
-              for win_y in range(0,input_shape[3]-(k_size-k_offset), stride):
-                  #get the conv window (input patch), shape should be [B,1,C,bit,x,y]
-                  input_patch = input[...,win_x:win_x+k_size,win_y:win_y+k_size]
-                  raw_output = input_patch * weight #now the input bits are already signed, no need to worry about sign here
-                  #rawoutput shape shoudl be [B,F,C,bit,x,y]
-                  #Then need to sum over x and y dimension of kernel
-                  psum_xy = torch.sum(raw_output, (-1,-2))
-                  #the result should have shape [B,F,C,bit]
-                  #Now should apply the quantization to the reuslt corresponding to desired LUT precision
-                  #print(torch.mean(torch.abs(psum_xy)), torch.max(psum_xy))
-                  psum_xy.data = quantization_n(psum_xy.data,bw,maxval)
-                  #Now should sum over bits, need to scale each bit with corresponding power of 2
-                  psum_xy = psum_xy*scale_vec
-                  psum_bit = torch.sum(psum_xy, -1)
-                  #shape should be [B,F,C]
-                  #Then sum over channels
-                  psum = torch.sum(psum_bit, -1)
-                  output[...,int(win_x/stride),int(win_y/stride)] = psum
-
-          #Bias computation
-          if bias != None:            
-              bias = bias.reshape(1,bias.shape[0],1,1)
-              output = output + bias
-          return output
-
-      def quantization_n(input, n = 8, rangeq = 1):
-          #rangeq = 0.5
-          intv = (rangeq*2)/(2**n-1)
-          qunt = torch.round(torch.mul(input,(1/intv)))  #***use ceil instead of floor for small value of n to make sure that not all weights are modified to zero in the beginning, achieves good accuracy for small n
-          #qunt = torch.floor(torch.mul(input,2**n-1))
-          #the above line divide the whole tensor by the smallest interval (1/2**n-1), which is same as multiply with 2**n-1, then take the floor and finally multiply the whole tensor with the smallest interval
-          out = torch.mul(qunt,intv)
-          out = torch.clamp(out, min=-rangeq, max=rangeq) #make sure the quantized version lies in the interval 0-1, if it's bigger than one just clamp it at one
-          return(out)
 
       def quantization_pos_formal(input, n = 8, rangeq = 1):
-          #updated version so that the minimal interval are integer power of two, so it fits better with stream gen function and is more formal way to do quantization
+          #updated version so that the minimal interval are integer power of two, so it fits better with stream gen function
           maxpower = int(math.log(rangeq,2))
           minpower = maxpower-(n)
           max = rangeq-2**minpower
@@ -229,16 +132,6 @@ for act_prec in [4,3,2]:
           #the above line divide the whole tensor by the smallest interval (1/2**n-1), which is same as multiply with 2**n-1, then take the floor and finally multiply the whole tensor with the smallest interval
           out = torch.mul(qunt,intv)
           out = torch.clamp(out, min=0, max=max) #make sure the quantized version lies in the interval 0-1, if it's bigger than one just clamp it at one
-          return(out)
-
-      def quantization_pos(input, n = 8, rangeq = 1):
-          #rangeq = 0.5
-          intv = (rangeq)/(2**n-1)
-          qunt = torch.round(torch.mul(input,(1/intv)))  #***use ceil instead of floor for small value of n to make sure that not all weights are modified to zero in the beginning, achieves good accuracy for small n
-          #qunt = torch.floor(torch.mul(input,2**n-1))
-          #the above line divide the whole tensor by the smallest interval (1/2**n-1), which is same as multiply with 2**n-1, then take the floor and finally multiply the whole tensor with the smallest interval
-          out = torch.mul(qunt,intv)
-          out = torch.clamp(out, min=0, max=rangeq) #make sure the quantized version lies in the interval 0-1, if it's bigger than one just clamp it at one
           return(out)
 
       def find_optimal_l2(input, kernel_pool): #tested
@@ -317,9 +210,6 @@ for act_prec in [4,3,2]:
                   in_channels, out_channels, kernel_size, batch_size, stride, padding, dilation,
                   False, _pair(0), groups, bias, padding_mode, layer_cnt)
               self.coeff = nn.Parameter(torch.ones(int(in_channels*out_channels/coeff_groupsize)))
-              #self.coeff = nn.Parameter(torch.ones(int(in_channels*out_channels*kernel_size_ori*kernel_size_ori/(8*coeff_groupsize))))
-              #self.sharedkernelcoeff = nn.Parameter(torch.ones(in_channels))
-              #self.layercoeff = nn.Parameter(torch.ones(1))
               
 
           def _conv_forward(self, input, weight, coeff):
@@ -332,34 +222,11 @@ for act_prec in [4,3,2]:
 
               input = quantization_pos_formal(input,act_prec,act_max)
 
-              # for coefficients for each kernel
               weight = weight.permute(0,2,3,1)
-              permuteshape = weight.shape 
               #weight.data = select_kernel(weight.data,kernelpool_layer)
               weight.data = select_kernel_channelwise(weight.data,kernelpool)
-              '''
-              #coefficients
-              weight = torch.reshape(weight, (int(weight.shape[0]*weight.shape[1]*weight.shape[2]*weight.shape[3]/8), 8))
-              coeff_repeat = coeff.unsqueeze(1)
-              coeff_repeat = coeff_repeat.repeat(1,8*coeff_groupsize)
-              coeff_repeat = coeff_repeat.reshape(weight.shape)
-              #print(coeff_repeat[-1])
-              weight = weight * coeff_repeat
-              weight = weight.reshape(permuteshape)
-              '''
               weight = weight.permute(0,3,1,2)
               
-              # for coefficients for each kernel
-              '''
-              weight_shape = weight.shape
-              weight = weight.reshape(int(weight.shape[0]*weight.shape[1]/coeff_groupsize),weight.shape[2]*weight.shape[3]*coeff_groupsize)
-              coeff_repeat = coeff.unsqueeze(1)
-              coeff_repeat = coeff_repeat.repeat(1,weight_shape[2]*weight_shape[3]*coeff_groupsize)
-              weight = weight * coeff_repeat
-              weight = weight.reshape(weight_shape)
-              '''
-              
-              #print("------------------------------------------")
               if self.padding_mode != 'zeros':
                   return (F.conv2d(F.pad(input, self._padding_repeated_twice, mode=self.padding_mode),
                                   weight, self.bias, self.stride,
