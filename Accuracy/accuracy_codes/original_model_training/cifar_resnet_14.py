@@ -1,4 +1,4 @@
-
+import argparse
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -23,7 +23,28 @@ import torch.backends.cudnn as cudnn
 import torchvision
 from torchvision.transforms import Compose
 
-torch.backends.cudnn.benchmark = True
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 500 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"pretrained_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist, the program will create the folder")
+    os.mkdir(weightfolder)
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist, the program will create the folder")
+    os.mkdir(ccfolder)
+
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -410,163 +431,163 @@ model = resnet_cifar10(pretrained = False).cuda()
 print(model)
 
 print_freq = 150
-    def train(train_loader, model, criterion, optimizer, epoch):
-        """
-            Run one train epoch
-        """
-        batch_time = AverageMeter()
-        data_time = AverageMeter()
-        losses = AverageMeter()
-        top1 = AverageMeter() 
+def train(train_loader, model, criterion, optimizer, epoch):
+    """
+        Run one train epoch
+    """
+    batch_time = AverageMeter()
+    data_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter() 
 
-        # switch to train mode
-        model.train()
+    # switch to train mode
+    model.train()
 
+    end = time.time()
+    for i, (input, target) in enumerate(train_loader):
+
+        # measure data loading time
+        data_time.update(time.time() - end)
+
+        input = input.cuda()
+        target = target.cuda()
+
+        # compute output
+        output = model(input)
+        loss = criterion(output, target)
+
+        # compute gradient and do SGD step
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        output = output.float()
+        loss = loss.float()
+        # measure accuracy and record loss
+        prec1 = accuracy(output.data, target)[0]
+        losses.update(loss.item(), input.size(0))
+        top1.update(prec1.item(), input.size(0))
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
         end = time.time()
-        for i, (input, target) in enumerate(train_loader):
+        
+        if i % print_freq == 0:
+            print('Epoch: [{0}][{1}/{2}]\t'
+                'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                    epoch, i, len(train_loader), batch_time=batch_time,
+                    data_time=data_time, loss=losses, top1=top1))
+        
 
-            # measure data loading time
-            data_time.update(time.time() - end)
 
-            input = input.cuda()
-            target = target.cuda()
+def validate(val_loader, model, criterion):
 
-            # compute output
+    """
+    Run evaluation
+    """
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
+
+    # switch to evaluate mode
+    model.eval()
+
+    end = time.time()
+    for i, (input, target) in enumerate(val_loader):
+        #print('new batch')
+        input = input.cuda()
+        target = target.cuda()
+        #the transfer time to gpu is not slow
+        starttime = time.time()
+        # compute output
+        with torch.no_grad():
             output = model(input)
             loss = criterion(output, target)
+        endtime = time.time()
+        #print("batch compute time is ", endtime - starttime)
+        output = output.float()
+        loss = loss.float()
 
-            # compute gradient and do SGD step
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+        # measure accuracy and record loss
+        prec1 = accuracy(output.data, target)[0]
+        losses.update(loss.item(), input.size(0))
+        top1.update(prec1.item(), input.size(0))
 
-            output = output.float()
-            loss = loss.float()
-            # measure accuracy and record loss
-            prec1 = accuracy(output.data, target)[0]
-            losses.update(loss.item(), input.size(0))
-            top1.update(prec1.item(), input.size(0))
-
-            # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
-            
-            if i % print_freq == 0:
-                print('Epoch: [{0}][{1}/{2}]\t'
-                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                    'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                        epoch, i, len(train_loader), batch_time=batch_time,
-                        data_time=data_time, loss=losses, top1=top1))
-            
-
-
-    def validate(val_loader, model, criterion):
-
-        """
-        Run evaluation
-        """
-        batch_time = AverageMeter()
-        losses = AverageMeter()
-        top1 = AverageMeter()
-
-        # switch to evaluate mode
-        model.eval()
-
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        #print(time.time() - end)
         end = time.time()
-        for i, (input, target) in enumerate(val_loader):
-            #print('new batch')
-            input = input.cuda()
-            target = target.cuda()
-            #the transfer time to gpu is not slow
-            starttime = time.time()
-            # compute output
-            with torch.no_grad():
-                output = model(input)
-                loss = criterion(output, target)
-            endtime = time.time()
-            #print("batch compute time is ", endtime - starttime)
-            output = output.float()
-            loss = loss.float()
-
-            # measure accuracy and record loss
-            prec1 = accuracy(output.data, target)[0]
-            losses.update(loss.item(), input.size(0))
-            top1.update(prec1.item(), input.size(0))
-
-            # measure elapsed time
-            batch_time.update(time.time() - end)
-            #print(time.time() - end)
-            end = time.time()
-            
-            if i % print_freq == 0:
-                print('Test: [{0}/{1}]\t'
-                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                        i, len(val_loader), batch_time=batch_time, loss=losses,
-                        top1=top1))
-            
         
-        print(' * Prec@1 {top1.avg:.3f}'
-            .format(top1=top1))
+        if i % print_freq == 0:
+            print('Test: [{0}/{1}]\t'
+                'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                    i, len(val_loader), batch_time=batch_time, loss=losses,
+                    top1=top1))
         
-        return top1.avg
+    
+    print(' * Prec@1 {top1.avg:.3f}'
+        .format(top1=top1))
+    
+    return top1.avg
 
-    def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-        """
-        Save the training model
-        """
-        torch.save(state, filename)
+def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+    """
+    Save the training model
+    """
+    torch.save(state, filename)
 
-    class AverageMeter(object):
-        """Computes and stores the average and current value"""
-        def __init__(self):
-            self.reset()
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
 
-        def reset(self):
-            self.val = 0
-            self.avg = 0
-            self.sum = 0
-            self.count = 0
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
 
-        def update(self, val, n=1):
-            self.val = val
-            self.sum += val * n
-            self.count += n
-            self.avg = self.sum / self.count
-
-
-    def adjust_learning_rate(optimizer, epoch, lr_init, n):
-        """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
-        lr = lr_init * (0.5 ** (epoch // n))
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 
-    def accuracy(output, target, topk=(1,)):
-        """Computes the precision@k for the specified values of k"""
-        maxk = max(topk)
-        batch_size = target.size(0)
+def adjust_learning_rate(optimizer, epoch, lr_init, n):
+    """Sets the learning rate to the initial LR decayed by 2 every 30 epochs"""
+    lr = lr_init * (0.5 ** (epoch // n))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
 
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
 
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
+def accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
+    batch_size = target.size(0)
 
-    def lr_schedule(optimizer, epoch):
-        initial_learning_rate = 0.001
-        decay_per_epoch = 0.99
-        lrate = initial_learning_rate * (decay_per_epoch ** epoch)
-        print('Learning rate = %f'%lrate)
-        for param_group in optimizer.param_groups:
-          param_group['lr'] = lrate
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
+
+def lr_schedule(optimizer, epoch):
+    initial_learning_rate = 0.001
+    decay_per_epoch = 0.99
+    lrate = initial_learning_rate * (decay_per_epoch ** epoch)
+    print('Learning rate = %f'%lrate)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lrate
 criterion = nn.CrossEntropyLoss(size_average=True).cuda()
 
 train_transform = Compose([
@@ -593,7 +614,7 @@ testset = torchvision.datasets.CIFAR10(root='./data', train=False, transform=tes
 val_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size,drop_last=True,
                                          shuffle=False, pin_memory=False, num_workers=workers)
 
-PATH = '/content/drive/MyDrive/data/resnet14.pth'
+PATH = PATH = os.path.join(weightfolder,'resnet14.pth')
 
 init_lr = 0.001
 decay_val = 0.2 #how much weight decay is applied when activated
@@ -601,7 +622,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
 best_prec1 = 0
 total_time = 0
 
-for epoch in range(500):
+for epoch in range(n_epoch):
     starttime = time.time()
     #adjust_learning_rate(optimizer, epoch, init_lr, 20)
     lr_schedule(optimizer, epoch)
@@ -628,7 +649,6 @@ for epoch in range(500):
 from kmeans_pytorch import kmeans
 import torch.utils.model_zoo
 from torch import utils
-state_dict=torch.load(PATH)
 #state_dict = utils.model_zoo.load_url('https://download.pytorch.org/models/resnet18-5c106cde.pth',progress=True)
 
 """Code for channel-wise pool"""
@@ -668,5 +688,6 @@ for n_cluster in [32,64,128]:
     cluster_ids_x, cluster_centers_cos = kmeans(
         X=x, num_clusters=num_clusters, distance='cosine', device=torch.device('cuda:0'), tol = tol
     )
-    output_path = "/content/drive/MyDrive/FWNN_data/resnet14_cifar_clustercenter_zdim" + str(n_cluster) + ".npy"
+    ccname = "resnet14_cifar_clustercenter_zdim" + str(n_cluster) + ".npy"
+    output_path = os.path.join(ccfolder,ccname)
     np.save(output_path, cluster_centers_cos)

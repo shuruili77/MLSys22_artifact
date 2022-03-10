@@ -29,20 +29,42 @@ from torch.nn.modules import Module
 from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
+#os.environ['CUDA_VISIBLE_DEVICES']='2'
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 50 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"weight_pool_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
 
 
-cluster_path = "/home/shurui/FWNN/clustercenters/resnet_mlperf_cifar_clustercenter_zdim64.npy"
+ccname = "resnet_mlperf_cifar_clustercenter_zdim64.npy"
+cluster_path = os.path.join(ccfolder,ccname)
 clustercenter = np.load(cluster_path)
 clustercenter = torch.from_numpy(clustercenter)
 
 print_freq = 1000
 
 #list of activation max values, profiled by checking the actual activation maximum values, mid is assign to nearest power of 2 (has clipping effect), max is always ceil to the next power of 2 results
-act_maxval_layer_arr_max = [16,8,16,8,16,8,0,16,8,16,8,0,16,8]
-act_maxval_layer_arr_mid = [16,8,16,8,16,8,0,8,4,8,8,0,8,4]
-act_maxval_layer_arr_8 = [8,8,8,8,8,8,0,8,8,8,8,0,8,8]
+act_maxval_layer_arr_small = [4,1,4,1,4,1,0,2,1,2,1,0,2,1]
 act_maxval_layer_arr_4 = [4,4,4,4,4,4,0,4,4,4,4,0,4,4]
-act_config_all = [act_maxval_layer_arr_max, act_maxval_layer_arr_mid, act_maxval_layer_arr_8]
+act_config_all = [act_maxval_layer_arr_small]
 result_holder = []
 
 maxval = 1
@@ -554,7 +576,7 @@ for act_prec in [8]:
                     norm_layer = nn.BatchNorm2d
                 self._norm_layer = norm_layer
                 layer_cnt = 0
-                self.inplanes = 64
+                self.inplanes = 16
                 self.dilation = 1
                 if replace_stride_with_dilation is None:
                     # each element in the tuple indicates if we should replace
@@ -972,7 +994,7 @@ for act_prec in [8]:
                                                 shuffle=False, pin_memory=False, num_workers=workers)
 
 
-        PATH = "/home/shurui/FWNN/fixedpooltraining/fw_weights/resnet_mlperf_cifar_zdim64_nofirstlayer.pth"
+        PATH = os.path.join(weightfolder,'resnet_mlperf_cifar_zdim64.pth')
         state_dict=torch.load(PATH)
         model.load_state_dict(state_dict)
 
@@ -983,13 +1005,12 @@ for act_prec in [8]:
         setup = [act_prec,psumbw,act_config,maxval]
         print("Activation bit width is ", act_prec, "activation configuration is ", act_config, ", max psum value is ", maxval, ", psum bitwidth is ", psumbw)
         print("inference accuracy is ", inferenceacc)
-        print("inference time is: ", elapsedtime)
-        #result_holder.append(inferenceacc)      
+        print("inference time is: ", elapsedtime)     
         if inferenceacc > temp_best:
           temp_best = inferenceacc
           best_setup = setup
     result_holder.append(temp_best)
-print(result_holder)
+print("the weight pool accuracy for specified lookup table precision is ",result_holder)
 
 
 

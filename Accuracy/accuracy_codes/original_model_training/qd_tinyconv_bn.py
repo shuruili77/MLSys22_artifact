@@ -19,8 +19,27 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 import numpy as np
 
-from google.colab import drive
-drive.mount('/content/drive')
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 200 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"pretrained_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist, the program will create the folder")
+    os.mkdir(weightfolder)
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist, the program will create the folder")
+    os.mkdir(ccfolder)
 
 class CONV_tiny_quant(nn.Module):
     def __init__(self, uniform=False):
@@ -229,7 +248,8 @@ def accuracy(output, target, topk=(1,)):
 
 def load_dataset(root, mtype):
     num_classes = 0
-    with open("/content/drive/MyDrive/datasets/quickdraw/DataUtils/class_names.txt", "r") as f:
+    qd_classname_path = "../QuickDraw-pytorch/DataUtils/class_names.txt"
+    with open(qd_classname_path, "r") as f:
         for line in f:
             num_classes = num_classes+1
 
@@ -278,7 +298,7 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 batch_size = 128
 workers = 2
 
-data_root = '/content/drive/MyDrive/datasets/quickdraw/Dataset'
+data_root = '../QuickDraw-pytorch/Dataset'
 
 train_data = QD_Dataset(mtype="train", root=data_root)
 train_loader = torch.utils.data.DataLoader(
@@ -319,22 +339,13 @@ if args.half:
 
 print(num_classes)
 
-PATH = '/content/drive/MyDrive/data/tinyconv_qd_tanh.pth'
-state_dict=torch.load(PATH)
-model.load_state_dict(state_dict)
-inferenceacc = validate(val_loader, model, criterion)
-print(inferenceacc)
-
+PATH = os.path.join(weightfolder,'tinyconv_qd.pth')
 best_prec1 = 0
 
-PATH = '/content/drive/MyDrive/data/tinyconv_qd_tanh.pth'
-
-
-prec1 = validate(val_loader, model, criterion)
 #optimizer = torch.optim.Adam(model.parameters(), lr = 0.001)
 optimizer = torch.optim.SGD(model.parameters(), lr=0.01,momentum=0.9, weight_decay=5e-4)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100)
-for epoch in range(100):
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epoch)
+for epoch in range(n_epoch):
     #adjust_learning_rate(optimizer, epoch, 0.001, 5)
 
     # train for one epoch
@@ -356,14 +367,10 @@ from kmeans_pytorch import kmeans
 import torch.utils.model_zoo
 from torch import utils
 
-PATH = '/content/drive/MyDrive/data/tinyconv_qd_tanh.pth'
-state_dict=torch.load(PATH)
-
-
 #cluster generation for z dimension
 #version for you channel-wise pool
 combine_size = 8
-PATH = '/content/drive/MyDrive/data/tinyconv_qd_tanh.pth'
+
 state_dict=torch.load(PATH)
 #state_dict = utils.model_zoo.load_url('https://download.pytorch.org/models/resnet18-5c106cde.pth',progress=True)
 for name, param in state_dict.items():
@@ -395,5 +402,6 @@ for n_cluster in [32,64,128]:
     cluster_ids_x, cluster_centers_cos = kmeans(
         X=x, num_clusters=num_clusters, distance='cosine', device=torch.device('cuda:0'), tol = tol
     )
-    output_path = "/content/drive/MyDrive/FWNN_data/tinyconv_qd_clustercenter_zdim" + str(n_cluster) + ".npy"
+    ccname = "tinyconv_qd_clustercenter_zdim" + str(n_cluster) + ".npy"
+    output_path = os.path.join(ccfolder,ccname)
     np.save(output_path, cluster_centers_cos)

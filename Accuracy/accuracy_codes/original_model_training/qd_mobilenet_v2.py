@@ -1,7 +1,5 @@
-import os
-os.environ['CUDA_VISIBLE_DEVICES']='0'
-
 import torch
+import os
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import utils
@@ -21,6 +19,28 @@ import torch.optim
 import torch.backends.cudnn as cudnn
 import torchvision
 from torchvision.transforms import Compose
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 300 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"pretrained_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist, the program will create the folder")
+    os.mkdir(weightfolder)
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist, the program will create the folder")
+    os.mkdir(ccfolder)
 
 class Block(nn.Module):
     '''expand + depthwise + pointwise'''
@@ -254,7 +274,8 @@ criterion = nn.CrossEntropyLoss(size_average=True).cuda()
 
 def load_dataset(root, mtype):
     num_classes = 0
-    with open("/home/shurui/datasets/QuickDraw-pytorch/DataUtils/class_names.txt", "r") as f:
+    qd_classname_path = "../QuickDraw-pytorch/DataUtils/class_names.txt"
+    with open(qd_classname_path, "r") as f:
         for line in f:
             num_classes = num_classes+1
 
@@ -312,7 +333,7 @@ test_transform = Compose([
 batch_size = 128
 workers = 16
 
-data_root = '/home/shurui/datasets/QuickDraw-pytorch/Dataset'
+data_root = '../QuickDraw-pytorch/Dataset'
 
 train_data = QD_Dataset(mtype="train", root=data_root)
 train_loader = torch.utils.data.DataLoader(
@@ -329,16 +350,12 @@ decay_val = 0.2 #how much weight decay is applied when activated
 #optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
 optimizer = torch.optim.SGD(model.parameters(), lr=0.01,
                       momentum=0.9, weight_decay=5e-4)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=220)
-best_prec1 = 100
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epoch)
+best_prec1 = 0
 total_time = 0
-PATH = '/home/shurui/FWNN/fixedpooltraining/weights/mobilenetv2_qd_s.pth'
-'''
-state_dict=torch.load(SAVEPATH)
-model.load_state_dict(state_dict)
-inferenceacc = validate(val_loader, model, criterion)
-'''
-for epoch in range(220):
+PATH = os.path.join(weightfolder,'mobilenetv2_qd.pth')
+
+for epoch in range(n_epoch):
     starttime = time.time()
     #adjust_learning_rate(optimizer, epoch, init_lr, 20)
     #lr_schedule(optimizer, epoch)
@@ -399,7 +416,8 @@ for n_cluster in [32,64,128]:
     cluster_ids_x, cluster_centers_cos = kmeans(
         X=x, num_clusters=num_clusters, distance='cosine', device=torch.device('cuda:0'), tol = tol
     )
-    output_path = "/home/shurui/FWNN/clustercenters/mobilenetv2_s_qd_clustercenter_zdim" + str(n_cluster) + ".npy"
+    ccname = "mobilenetv2_qd_clustercenter_zdim" + str(n_cluster) + ".npy"
+    output_path = os.path.join(ccfolder,ccname)
     np.save(output_path, cluster_centers_cos)
 
 print(best_prec1)

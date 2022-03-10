@@ -26,14 +26,40 @@ import numpy as np
 import torchvision
 from torchvision.transforms import Compose
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 100 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"pretrained_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+weightpoolfolder = os.path.join(rootdir,"weight_pool_weights")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
+if not os.path.isdir(weightpoolfolder):
+    print("Weight pooll weight folder does not exist, the folder will be created")
+    os.mkdir(weightpoolfolder)
+
 
 accuracy_list = []
 
-for pool_size in [64,128]:
-    cluster_path = "/content/drive/MyDrive/FWNN_data/resnet10_cifar_clustercenter_zdim" + str(pool_size) + ".npy"
+for pool_size in [32,64,128]:
+    ccname = "resnet10_cifar_clustercenter_zdim" + str(pool_size) + ".npy"
+    cluster_path = os.path.join(ccfolder,ccname)
     clustercenter = np.load(cluster_path)
     clustercenter = torch.from_numpy(clustercenter)
-
     class _ConvNd(Module):
 
         __constants__ = ['stride', 'padding', 'dilation', 'groups', 'bias',
@@ -200,43 +226,13 @@ for pool_size in [64,128]:
             #weight.data = select_kernel(weight.data,kernelpool)
             #weight = select_kernel(weight.data, model.filterpool_trainable)
             #weight = weight * coeff
-            print(torch.max(input), torch.mean(torch.abs(input)))
             # for coefficients for each kernel
             weight = weight.permute(0,2,3,1)
             permuteshape = weight.shape
             #weight.data = select_kernel(weight.data,kernelpool_layer)
             weight.data = select_kernel_channelwise(weight.data,kernelpool)
-            '''
-            #coefficients
-            weight = torch.reshape(weight, (int(weight.shape[0]*weight.shape[1]*weight.shape[2]*weight.shape[3]/8), 8))
-            coeff_repeat = coeff.unsqueeze(1)
-            coeff_repeat = coeff_repeat.repeat(1,8*coeff_groupsize)
-            coeff_repeat = coeff_repeat.reshape(weight.shape)
-            #print(coeff_repeat[-1])
-            weight = weight * coeff_repeat
-            weight = weight.reshape(permuteshape)
-            '''
             weight = weight.permute(0,3,1,2)
             
-            # for coefficients for each kernel
-            '''
-            weight_shape = weight.shape
-            weight = weight.reshape(int(weight.shape[0]*weight.shape[1]/coeff_groupsize),weight.shape[2]*weight.shape[3]*coeff_groupsize)
-            coeff_repeat = coeff.unsqueeze(1)
-            coeff_repeat = coeff_repeat.repeat(1,weight_shape[2]*weight_shape[3]*coeff_groupsize)
-            weight = weight * coeff_repeat
-            weight = weight.reshape(weight_shape)
-            '''
-            
-            #for shared coefficient for each kernel (shared across filters)
-            '''
-            weight_shape = weight.shape
-            weight = weight.reshape(weight.shape[0],weight.shape[1],weight.shape[2]*weight.shape[3])
-            coeff_repeat = coeff.unsqueeze(0).unsqueeze(2)
-            coeff_repeat = coeff_repeat.repeat(weight.shape[0],1,weight_shape[2]*weight_shape[3])
-            weight = weight * coeff_repeat
-            weight = weight.reshape(weight_shape)
-            '''
             
             #print("------------------------------------------")
             if self.padding_mode != 'zeros':
@@ -738,7 +734,7 @@ for pool_size in [64,128]:
     val_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size,drop_last=True,
                                             shuffle=False, pin_memory=False, num_workers=workers)
 
-    PATH = '/content/drive/MyDrive/data/resnet10.pth'
+    PATH = os.path.join(weightfolder,'resnet10.pth')
     state_dict=torch.load(PATH)
     #load the weights from original network and copy to the new model
     params1 = state_dict#net.named_parameters()
@@ -755,9 +751,10 @@ for pool_size in [64,128]:
     optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
     best_prec1 = 0
     total_time = 0
-    SAVEPATH = '/content/drive/MyDrive/data/resnet10_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
+    weight_name = 'resnet10_cifar_zdim' + str(pool_size) + '.pth'
+    SAVEPATH = os.path.join(weightpoolfolder,weight_name)
 
-    for epoch in range(100):
+    for epoch in range(n_epoch):
         starttime = time.time()
         adjust_learning_rate(optimizer, epoch, init_lr, 20)
         #lr_schedule(optimizer, epoch)
@@ -782,4 +779,4 @@ for pool_size in [64,128]:
         print("epoch time is: ", elapsedtime, "s. Current best accuracy is ", best_prec1)
     accuracy_list.append(best_prec1)
 
-print(accuracy_list)
+print("the weight pool accuracy for weight pool size of 32, 64 and 128 are ",accuracy_list)

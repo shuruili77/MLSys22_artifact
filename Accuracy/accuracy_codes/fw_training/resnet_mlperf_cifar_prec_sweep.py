@@ -31,13 +31,35 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 50 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"weight_pool_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
 
 print(torch.cuda.device_count())
 print(torch.cuda.get_device_name(0))
 
 pool_size = 64
 
-cluster_path = ""
+ccname = "resnet10_cifar_clustercenter_zdim64.npy"
+cluster_path = os.path.join(ccfolder,ccname)
 clustercenter = np.load(cluster_path)
 clustercenter = torch.from_numpy(clustercenter)
 
@@ -55,8 +77,7 @@ result_holder = []
 config_holder = []
 
 maxval = 1
-for act_prec in [4,3,2]: 
-  #for maxval in [1]:
+for act_prec in [8,7,6,5,4,3]: 
   temp_best = 0
   best_config = None
   for act_config in act_config_all:
@@ -874,48 +895,48 @@ for act_prec in [4,3,2]:
                                               shuffle=False, pin_memory=False, num_workers=workers)
 
 
-      PATH = '/content/drive/MyDrive/data/resnet_mlperf_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
+      PATH = os.path.join(weightfolder,'resnet_mlperf_cifar_zdim64.pth')
       state_dict=torch.load(PATH)
       model.load_state_dict(state_dict)
-      init_lr = 0.0001
+      init_lr = 0.001
       decay_val = 0.2 #how much weight decay is applied when activated
-      optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
-      #optimizer = torch.optim.SGD(model.parameters(), lr=0.01,momentum=0.9, weight_decay=5e-4)
-      #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50)
+      optimizer = torch.optim.SGD(model.parameters(), lr=0.01,
+                      momentum=0.9, weight_decay=5e-4)
+      scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epoch)
       starttime = time.time()
       inferenceacc = validate(val_loader, model, criterion)
       print(inferenceacc)
+      best_prec1 = inferenceacc
 
-      #optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
-      best_prec1 = 0
       total_time = 0
-      SAVEPATH = '/content/drive/MyDrive/data/resnet_mlperf_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
-      
-      for epoch in range(10):
-          starttime = time.time()
-          adjust_learning_rate(optimizer, epoch, init_lr, 5)
-          #lr_schedule(optimizer, epoch)
+      if act_prec in [3]:
+        print("Retraining starts!")
+        weight_name = "resnet_mlperf_cifar_zdim64_retrained_"+str(act_prec)+"bit.pth"
+        SAVEPATH = os.path.join(weightfolder,weight_name)
 
-          # train for one epoch
-          train(train_loader, model, criterion, optimizer, epoch)
+        for epoch in range(n_epoch):
+            starttime = time.time()
 
-          # evaluate on validation set
-          prec1 = validate(val_loader, model, criterion)
-          print(prec1)
-          #result_list.append(prec1)
+            # train for one epoch
+            train(train_loader, model, criterion, optimizer, epoch)
 
-          # remember best prec@1 and save checkpoint
-          if (prec1 > best_prec1):
-              #Save the weight for the best accuracy 
-              #torch.save(model.state_dict(), SAVEPATH)
-              print("best accuracy achieved, weight saved, accuracy is ", prec1)
-          best_prec1 = max(prec1, best_prec1)
-          endtime = time.time()
-          elapsedtime = endtime - starttime
-          total_time = total_time + elapsedtime
-          total_time_h = total_time/3600
-          print("epoch time is: ", elapsedtime, "s. Current best accuracy is ", best_prec1)
-          #scheduler.step()
+            # evaluate on validation set
+            prec1 = validate(val_loader, model, criterion)
+            print(prec1)
+            #result_list.append(prec1)
+
+            # remember best prec@1 and save checkpoint
+            if (prec1 > best_prec1):
+                #Save the weight for the best accuracy 
+                torch.save(model.state_dict(), SAVEPATH)
+                print("best accuracy achieved, weight saved, accuracy is ", prec1)
+            best_prec1 = max(prec1, best_prec1)
+            endtime = time.time()
+            elapsedtime = endtime - starttime
+            total_time = total_time + elapsedtime
+            total_time_h = total_time/3600
+            print("epoch time is: ", elapsedtime, "s. Current best accuracy is ", best_prec1)
+            scheduler.step()
     inferenceacc = best_prec1
       
     if inferenceacc > temp_best:
@@ -923,5 +944,4 @@ for act_prec in [4,3,2]:
       best_config = act_config
   result_holder.append(temp_best)
   config_holder.append(best_config)
-print(result_holder)
-print(config_holder)
+print("the weight pool accuracy for specified bitwidth is ",result_holder)

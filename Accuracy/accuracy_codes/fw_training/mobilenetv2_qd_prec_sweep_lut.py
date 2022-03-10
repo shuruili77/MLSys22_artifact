@@ -26,6 +26,29 @@ import numpy as np
 import torchvision
 from torchvision.transforms import Compose
 
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 50 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"weight_pool_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
+
 print_freq = 100
 
 accuracy_list = []
@@ -56,15 +79,14 @@ for value in max_val_list:
     max_val_floor_ss.append(closest_floor/4)
 
 #act_config_all = [max_val_round, max_val_ceil, max_val_floor, max_val_round_s, max_val_floor_s, max_val_floor_ss]
-act_config_all = [max_val_round, max_val_round_s,max_val_round_s]
+act_config_all = [max_val_round]
 result_holder = []
 best_setup_holder = []
-'''
-Note for best configs for each precision
-5: max_val_floor
-4: max_val_round_s
-3: max_val_round_s
-'''
+
+ccname = "mobilenetv2_qd_clustercenter_zdim64.npy"
+cluster_path = os.path.join(ccfolder,ccname)
+clustercenter = np.load(cluster_path)
+clustercenter = torch.from_numpy(clustercenter)
 #maxval = 0.05
 maxval = 0.025
 for psumbw in [16,8,4]:
@@ -74,9 +96,6 @@ for psumbw in [16,8,4]:
         temp_setup = None
         for maxval in [0.05,0.1]:
         #for idx, act_config in enumerate(act_config_all):
-            cluster_path = "/home/shurui/FWNN/clustercenters/mobilenetv2_qd_clustercenter_zdim64.npy"
-            clustercenter = np.load(cluster_path)
-            clustercenter = torch.from_numpy(clustercenter)
 
             class _ConvNd(Module):
 
@@ -555,7 +574,8 @@ for psumbw in [16,8,4]:
 
             def load_dataset(root, mtype):
                 num_classes = 0
-                with open("/home/shurui/datasets/QuickDraw-pytorch/DataUtils/class_names.txt", "r") as f:
+                qd_classname_path = "../QuickDraw-pytorch/DataUtils/class_names.txt"
+                with open(qd_classname_path, "r") as f:
                     for line in f:
                         num_classes = num_classes+1
 
@@ -613,7 +633,7 @@ for psumbw in [16,8,4]:
             batch_size = 256
             workers = 16
 
-            data_root = '/home/shurui/datasets/QuickDraw-pytorch/Dataset'
+            data_root = '../QuickDraw-pytorch/Dataset'
 
             train_data = QD_Dataset(mtype="train", root=data_root)
             train_loader = torch.utils.data.DataLoader(
@@ -625,7 +645,7 @@ for psumbw in [16,8,4]:
 
             num_classes = train_data.get_number_classes()
 
-            PATH = '/home/shurui/FWNN/fixedpooltraining/mobilenetv2_qd_zdim64_nofirstlayer.pth'
+            PATH = os.path.join(weightfolder,'mobilenetv2_qd_zdim64.pth')
             state_dict=torch.load(PATH)
             model.load_state_dict(state_dict)
             starttime = time.time()
@@ -638,4 +658,4 @@ for psumbw in [16,8,4]:
             if inferenceacc > temp_best:
               temp_best = inferenceacc
         result_holder.append(temp_best)
-print(result_holder)
+print("the weight pool accuracy for specified lookup table precision is ",result_holder)

@@ -26,11 +26,37 @@ import numpy as np
 import torchvision
 from torchvision.transforms import Compose
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 200 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"pretrained_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+weightpoolfolder = os.path.join(rootdir,"weight_pool_weights")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
+if not os.path.isdir(weightpoolfolder):
+    print("Weight pooll weight folder does not exist, the folder will be created")
+    os.mkdir(weightpoolfolder)
 
 z_accuracy_list = []
 
-for pool_size in [64]:
-    cluster_path = "/content/drive/MyDrive/FWNN_data/resnet_cifar_clustercenter_zdim" + str(pool_size) + ".npy"
+for pool_size in [32,64,128]:
+    ccname = "resnet_mlperf_cifar_clustercenter_zdim" + str(pool_size) + ".npy"
+    cluster_path = os.path.join(ccfolder,ccname)
     clustercenter = np.load(cluster_path)
     clustercenter = torch.from_numpy(clustercenter)
 
@@ -195,39 +221,15 @@ for pool_size in [64]:
             
 
         def _conv_forward(self, input, weight, coeff):
-            #input.data = quantization_n(input.data,4,2)
-            #if(self.layer_idx != 0):
-            #weight.data = select_kernel(weight.data,kernelpool)
-            #weight = select_kernel(weight.data, model.filterpool_trainable)
-            #weight = weight * coeff
-            #print(torch.max(input), torch.mean(torch.abs(input)))
-            '''
+
+            
             # for coefficients for each kernel
             weight = weight.permute(0,2,3,1)
             permuteshape = weight.shape
             #weight.data = select_kernel(weight.data,kernelpool_layer)
             weight.data = select_kernel_channelwise(weight.data,kernelpool)
             weight = weight.permute(0,3,1,2)
-            '''
-            # for coefficients for each kernel
-            '''
-            weight_shape = weight.shape
-            weight = weight.reshape(int(weight.shape[0]*weight.shape[1]/coeff_groupsize),weight.shape[2]*weight.shape[3]*coeff_groupsize)
-            coeff_repeat = coeff.unsqueeze(1)
-            coeff_repeat = coeff_repeat.repeat(1,weight_shape[2]*weight_shape[3]*coeff_groupsize)
-            weight = weight * coeff_repeat
-            weight = weight.reshape(weight_shape)
-            '''
             
-            #for shared coefficient for each kernel (shared across filters)
-            '''
-            weight_shape = weight.shape
-            weight = weight.reshape(weight.shape[0],weight.shape[1],weight.shape[2]*weight.shape[3])
-            coeff_repeat = coeff.unsqueeze(0).unsqueeze(2)
-            coeff_repeat = coeff_repeat.repeat(weight.shape[0],1,weight_shape[2]*weight_shape[3])
-            weight = weight * coeff_repeat
-            weight = weight.reshape(weight_shape)
-            '''
             
             #print("------------------------------------------")
             if self.padding_mode != 'zeros':
@@ -768,7 +770,7 @@ for pool_size in [64]:
     val_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size,drop_last=True,
                                             shuffle=False, pin_memory=False, num_workers=workers)
 
-    PATH = '/content/drive/MyDrive/data/resnet_cifar10.pth'
+    PATH = os.path.join(weightfolder,'resnetmlperf.pth')
     #PATH = '/content/drive/MyDrive/data/resnet_mlperf_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
     state_dict=torch.load(PATH)
     #load the weights from original network and copy to the new model
@@ -785,12 +787,12 @@ for pool_size in [64]:
     decay_val = 0.2 #how much weight decay is applied when activated
     #optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01,momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epoch)
     best_prec1 = 0
     total_time = 0
-    SAVEPATH = '/content/drive/MyDrive/data/resnet_mlperf_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
-
-    for epoch in range(200):
+    weight_name = 'resnet_mlperf_cifar_zdim' + str(pool_size) + '.pth'
+    SAVEPATH = os.path.join(weightpoolfolder,weight_name)
+    for epoch in range(n_epoch):
         starttime = time.time()
         #adjust_learning_rate(optimizer, epoch, init_lr, 20)
         #lr_schedule(optimizer, epoch)
@@ -816,4 +818,4 @@ for pool_size in [64]:
         scheduler.step()
     z_accuracy_list.append(best_prec1)
 
-print(z_accuracy_list)
+print("the weight pool accuracy for weight pool size of 32, 64 and 128 are ",z_accuracy_list)

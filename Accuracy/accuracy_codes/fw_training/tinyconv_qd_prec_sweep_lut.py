@@ -30,15 +30,39 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 50 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
 
-cluster_path = "/home/shurui/FWNN/clustercenters/tinyconv_qd_clustercenter_zdim64.npy"
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"weight_pool_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
+
+
+
+ccname = "tinyconv_qd_clustercenter_zdim64.npy"
+cluster_path = os.path.join(ccfolder,ccname)
 clustercenter = np.load(cluster_path)
 clustercenter = torch.from_numpy(clustercenter)
 
 print_freq = 1000
 
 #list of activation max values, profiled by checking the actual activation maximum values, mid is assign to nearest power of 2 (has clipping effect), max is always ceil to the next power of 2 results
-act_config_all = [[8,16],[8,8],[4,8],[4,4],[2,4]]
+act_config_all = [[4,8]]
 result_holder = []
 setup_holder = []
 
@@ -583,7 +607,8 @@ for act_prec in [8]:
 
         def load_dataset(root, mtype):
             num_classes = 0
-            with open("/home/shurui/datasets/QuickDraw-pytorch/DataUtils/class_names.txt", "r") as f:
+            qd_classname_path = "../QuickDraw-pytorch/DataUtils/class_names.txt"
+            with open(qd_classname_path, "r") as f:
                 for line in f:
                     num_classes = num_classes+1
 
@@ -641,7 +666,7 @@ for act_prec in [8]:
         batch_size = 128
         workers = 16
 
-        data_root = '/home/shurui/datasets/QuickDraw-pytorch/Dataset'
+        data_root = '../QuickDraw-pytorch/Dataset'
 
         train_data = QD_Dataset(mtype="train", root=data_root)
         train_loader = torch.utils.data.DataLoader(
@@ -654,7 +679,7 @@ for act_prec in [8]:
         num_classes = train_data.get_number_classes()
 
 
-        PATH = "/home/shurui/FWNN/fixedpooltraining/fw_weights/tinyconv_qd_zdim64_nofirstlayer.pth"
+        PATH = os.path.join(weightfolder,'tinyconv_qd_zdim64.pth')
         state_dict=torch.load(PATH)
         model.load_state_dict(state_dict)
 
@@ -672,8 +697,7 @@ for act_prec in [8]:
           best_setup = setup
     result_holder.append(temp_best)
     setup_holder.append(best_setup)
-print(setup_holder)
-print(result_holder)
+print("the weight pool accuracy for specified lookup table precision is ",result_holder)
 
 
 

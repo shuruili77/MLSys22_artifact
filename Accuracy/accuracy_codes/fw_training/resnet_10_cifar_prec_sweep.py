@@ -31,11 +31,33 @@ from torch.nn.modules.utils import _single, _pair, _triple
 import torch.nn.functional as F
 from torchvision.transforms import Compose
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 50 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"weight_pool_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
 
 print(torch.cuda.device_count())
 print(torch.cuda.get_device_name(0))
 
-cluster_path = "/home/shurui/FWNN/clustercenters/resnet10_cifar_clustercenter_zdim64.npy"
+ccname = "resnet10_cifar_clustercenter_zdim64.npy"
+cluster_path = os.path.join(ccfolder,ccname)
 clustercenter = np.load(cluster_path)
 clustercenter = torch.from_numpy(clustercenter)
 
@@ -50,8 +72,7 @@ act_config_all = [act_maxval_layer_arr_mid, act_maxval_layer_arr_8]
 result_holder = []
 
 maxval = 1
-for act_prec in [4,3,2]: 
-  #for maxval in [1]:
+for act_prec in [8,7,6,5,4,3]: 
   temp_best = 0
   for act_config in act_config_all:
     for bw in [8]:
@@ -213,11 +234,6 @@ for act_prec in [4,3,2]:
               
 
           def _conv_forward(self, input, weight, coeff):
-              #input.data = quantization_n(input.data,4,2)
-              #if(self.layer_idx != 0):
-              #weight.data = select_kernel(weight.data,kernelpool)
-              #weight = select_kernel(weight.data, model.filterpool_trainable)
-              #weight = weight * coeff
               act_max = act_config[self.layer_cnt]
 
               input = quantization_pos_formal(input,act_prec,act_max)
@@ -820,7 +836,8 @@ for act_prec in [4,3,2]:
                                               shuffle=False, pin_memory=False, num_workers=workers)
 
 
-      PATH = "/home/shurui/FWNN/fixedpooltraining/fw_weights/resnet10_cifar_zdim64_nofirstlayer.pth"
+    
+      PATH = os.path.join(weightfolder,'resnet10_cifar_zdim64.pth')
       state_dict=torch.load(PATH)
       model.load_state_dict(state_dict)
 
@@ -829,30 +846,34 @@ for act_prec in [4,3,2]:
       #optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
       optimizer = torch.optim.SGD(model.parameters(), lr=0.01,
                       momentum=0.9, weight_decay=5e-4)
-      scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50)
+      scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epoch)
       starttime = time.time()
       inferenceacc = validate(val_loader, model, criterion)
       print(inferenceacc)
-      SAVEPATH = "/home/shurui/FWNN/fixedpooltraining/fw_weights/resnet10_cifar_zdim64_retrained_"+str(act_prec)+"bit.pth"
-      best_prec1 = 0
-      for epoch in range(50):
-          #adjust_learning_rate(optimizer, epoch, init_lr, 10)
-          #lr_schedule(optimizer, epoch)
+      best_prec1 = inferenceacc
+      if act_prec in [4,3]:
+        print("Retraining starts!")
+        weight_name = "resnet10_cifar_zdim64_retrained_"+str(act_prec)+"bit.pth"
+        SAVEPATH = os.path.join(weightfolder,weight_name)
 
-          # train for one epoch
-          train(train_loader, model, criterion, optimizer, epoch)
+        for epoch in range(n_epoch):
+            #adjust_learning_rate(optimizer, epoch, init_lr, 10)
+            #lr_schedule(optimizer, epoch)
 
-          # evaluate on validation set
-          prec1 = validate(val_loader, model, criterion)
-          #result_list.append(prec1)
+            # train for one epoch
+            train(train_loader, model, criterion, optimizer, epoch)
 
-          # remember best prec@1 and save checkpoint
-          if (prec1 > best_prec1):
-              #Save the weight for the best accuracy 
-              torch.save(model.state_dict(), SAVEPATH)
-              print("best accuracy achieved, weight saved, accuracy is ", prec1)
-          best_prec1 = max(prec1, best_prec1)
-          scheduler.step()
+            # evaluate on validation set
+            prec1 = validate(val_loader, model, criterion)
+            #result_list.append(prec1)
+
+            # remember best prec@1 and save checkpoint
+            if (prec1 > best_prec1):
+                #Save the weight for the best accuracy 
+                torch.save(model.state_dict(), SAVEPATH)
+                print("best accuracy achieved, weight saved, accuracy is ", prec1)
+            best_prec1 = max(prec1, best_prec1)
+            scheduler.step()
 
       endtime = time.time()
       elapsedtime = endtime - starttime
@@ -863,7 +884,7 @@ for act_prec in [4,3,2]:
     if best_prec1 > temp_best:
       temp_best = best_prec1
   result_holder.append(temp_best)
-print(result_holder)
+print("the weight pool accuracy for specified bitwidth is ",result_holder)
 
 
 

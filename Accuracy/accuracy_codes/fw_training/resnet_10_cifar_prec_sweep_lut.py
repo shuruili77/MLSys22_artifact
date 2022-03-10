@@ -7,6 +7,7 @@ from torch import utils
 from typing import Type, Any, Callable, Union, List, Optional
 import os
 import time
+import argparse
 import numpy as np
 import random
 import torchvision
@@ -21,12 +22,36 @@ from torch.nn.parameter import Parameter
 from torch.nn import init
 from torch.nn.modules import Module
 from torch.nn.modules.utils import _single, _pair, _triple
-import torch.nn.functional as F
+import torch.nn.functional as  F
 from torchvision.transforms import Compose
+#os.environ['CUDA_VISIBLE_DEVICES']='1'
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 50 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"weight_pool_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
 
 
 
-cluster_path = "/home/shurui/FWNN/clustercenters/resnet10_cifar_clustercenter_zdim64.npy"
+ccname = "resnet10_cifar_clustercenter_zdim64.npy"
+cluster_path = os.path.join(ccfolder,ccname)
 clustercenter = np.load(cluster_path)
 clustercenter = torch.from_numpy(clustercenter)
 
@@ -952,7 +977,7 @@ for act_prec in [8]:
                                                 shuffle=False, pin_memory=False, num_workers=workers)
 
 
-        PATH = "/home/shurui/FWNN/fixedpooltraining/fw_weights/resnet10_cifar_zdim64_nofirstlayer.pth"
+        PATH = os.path.join(weightfolder,'resnet10_cifar_zdim64.pth')
         state_dict=torch.load(PATH)
         model.load_state_dict(state_dict)
 
@@ -963,13 +988,12 @@ for act_prec in [8]:
         setup = [act_prec,psumbw,act_config,maxval]
         print("Activation bit width is ", act_prec, "activation configuration is ", act_config, ", max psum value is ", maxval, ", psum bitwidth is ", psumbw)
         print("inference accuracy is ", inferenceacc, " original accuacy is 89.8 for resnet 10 zdim")
-        print("inference time is: ", elapsedtime)
-        #result_holder.append(inferenceacc)      
+        print("inference time is: ", elapsedtime)   
         if inferenceacc > temp_best:
           temp_best = inferenceacc
           best_setup = setup
     result_holder.append(temp_best)
-print(result_holder)
+print("the weight pool accuracy for specified lookup table precision is ",result_holder)
 
 
 

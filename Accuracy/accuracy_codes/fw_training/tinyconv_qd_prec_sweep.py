@@ -25,25 +25,46 @@ import torch.nn.functional as F
 import numpy as np
 import torchvision
 from torchvision.transforms import Compose
+#os.environ['CUDA_VISIBLE_DEVICES']='1'
 
-torch.backends.cudnn.benchmark = True
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 50 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"weight_pool_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
 
 accuracy_list = []
 layer_max_list = []
 
 
-act_config_all = [[4,4],[2,4],[2,4]]
+act_config_all = [[4,8],[4,8],[4,8],[4,4],[2,4],[2,4]]
 result_holder = []
 best_setup_holder = []
 
-for idx, act_prec in enumerate([8,7,6,5]):  
-    #for maxval in [1]:
+ccname = "tinyconv_qd_clustercenter_zdim64.npy"
+cluster_path = os.path.join(ccfolder,ccname)
+clustercenter = np.load(cluster_path)
+clustercenter = torch.from_numpy(clustercenter)
+
+for idx, act_prec in enumerate([8,7,6,5,4,3]):  
     temp_best = 0
     temp_setup = None
-
-    cluster_path = "/home/shurui/FWNN/clustercenters/tinyconv_qd_clustercenter_zdim64.npy"
-    clustercenter = np.load(cluster_path)
-    clustercenter = torch.from_numpy(clustercenter)
 
     class _ConvNd(Module):
 
@@ -204,9 +225,6 @@ for idx, act_prec in enumerate([8,7,6,5]):
                 in_channels, out_channels, kernel_size, batch_size, stride, padding, dilation,
                 False, _pair(0), groups, bias, padding_mode, layer_idx)
             self.coeff = nn.Parameter(torch.ones(int(in_channels*out_channels/coeff_groupsize)))
-            #self.coeff = nn.Parameter(torch.ones(int(in_channels*out_channels*kernel_size_ori*kernel_size_ori/(8*coeff_groupsize))))
-            #self.sharedkernelcoeff = nn.Parameter(torch.ones(in_channels))
-            #self.layercoeff = nn.Parameter(torch.ones(1))
             
 
         def _conv_forward(self, input, weight, coeff):
@@ -216,7 +234,6 @@ for idx, act_prec in enumerate([8,7,6,5]):
             input = quantization_n_formal(input,act_prec-1, act_max)#minus one for correct results
             weight = weight.permute(0,2,3,1)
             permuteshape = weight.shape
-            #weight.data = select_kernel(weight.data,kernelpool_layer)
             weight.data = select_kernel_channelwise(weight.data,kernelpool)
             weight = weight.permute(0,3,1,2)
             
@@ -447,7 +464,8 @@ for idx, act_prec in enumerate([8,7,6,5]):
 
     def load_dataset(root, mtype):
         num_classes = 0
-        with open("/home/shurui/datasets/QuickDraw-pytorch/DataUtils/class_names.txt", "r") as f:
+        qd_classname_path = "../QuickDraw-pytorch/DataUtils/class_names.txt"
+        with open(qd_classname_path, "r") as f:
             for line in f:
                 num_classes = num_classes+1
 
@@ -505,7 +523,7 @@ for idx, act_prec in enumerate([8,7,6,5]):
     batch_size = 128
     workers = 4
 
-    data_root = '/home/shurui/datasets/QuickDraw-pytorch/Dataset'
+    data_root = '../QuickDraw-pytorch/Dataset'
 
     train_data = QD_Dataset(mtype="train", root=data_root)
     train_loader = torch.utils.data.DataLoader(
@@ -517,8 +535,7 @@ for idx, act_prec in enumerate([8,7,6,5]):
 
     num_classes = train_data.get_number_classes()
 
-    PATH = '/home/shurui/FWNN/fixedpooltraining/fw_weights/tinyconv_qd_zdim64_nofirstlayer.pth'
-    #PATH = "/home/shurui/FWNN/fixedpooltraining/fw_weights/mobilenetv2_qd_zdim64_retrained_"+str(act_prec)+"bit.pth"
+    PATH = os.path.join(weightfolder,'tinyconv_qd_zdim64.pth')
     state_dict=torch.load(PATH)
     model.load_state_dict(state_dict)
 
@@ -527,28 +544,31 @@ for idx, act_prec in enumerate([8,7,6,5]):
     #optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.002,
                     momentum=0.9, weight_decay=5e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=20)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epoch)
     starttime = time.time()
     inferenceacc = validate(val_loader, model, criterion)
     print(inferenceacc)
     
-    SAVEPATH = "/home/shurui/FWNN/fixedpooltraining/fw_weights/tinyconv_qd_zdim64_retrained_"+str(act_prec)+"bit.pth"
-    best_prec1 = 0
-    for epoch in range(20):
-        # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch)
+    best_prec1 = inferenceacc
+    if act_prec in [5,4,3]:
+        print("Retraining starts!")
+        weight_name = "tinyconv_qd_zdim64_retrained_"+str(act_prec)+"bit.pth"
+        SAVEPATH = os.path.join(weightfolder,weight_name)         
+        for epoch in range(n_epoch):
+            # train for one epoch
+            train(train_loader, model, criterion, optimizer, epoch)
 
-        # evaluate on validation set
-        prec1 = validate(val_loader, model, criterion)
-        #result_list.append(prec1)
+            # evaluate on validation set
+            prec1 = validate(val_loader, model, criterion)
+            #result_list.append(prec1)
 
-        # remember best prec@1 and save checkpoint
-        if (prec1 > best_prec1):
-            #Save the weight for the best accuracy 
-            torch.save(model.state_dict(), SAVEPATH)
-            print("best accuracy achieved, weight saved, accuracy is ", prec1)
-        best_prec1 = max(prec1, best_prec1)
-        scheduler.step()
+            # remember best prec@1 and save checkpoint
+            if (prec1 > best_prec1):
+                #Save the weight for the best accuracy 
+                torch.save(model.state_dict(), SAVEPATH)
+                print("best accuracy achieved, weight saved, accuracy is ", prec1)
+            best_prec1 = max(prec1, best_prec1)
+            scheduler.step()
     result_holder.append(best_prec1)
     
-print(result_holder)
+print("the weight pool accuracy for specified bitwidth is ",result_holder)

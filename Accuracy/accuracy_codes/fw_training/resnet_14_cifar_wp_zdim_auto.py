@@ -26,11 +26,38 @@ import numpy as np
 import torchvision
 from torchvision.transforms import Compose
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--root_dir", help="specify the root directory, default is the 'accuracy_codes folder'",
+                    default = ".." )
+parser.add_argument("--epochs", help="number of epochs", type = int,
+                    default = 100 )
+args = parser.parse_args()
+rootdir = args.root_dir
+n_epoch = args.epochs
+
+#check and create the weight and cluster center folder if not existed
+if not os.path.isdir(rootdir):
+    print("Error! Specified root directory does not exist!")
+    quit()
+weightfolder = os.path.join(rootdir,"pretrained_weights")
+ccfolder = os.path.join(rootdir,"cluster_centers")
+weightpoolfolder = os.path.join(rootdir,"weight_pool_weights")
+if not os.path.isdir(weightfolder):
+    print("weight folder does not exist!")
+    quit()
+if not os.path.isdir(ccfolder):
+    print("cluster center folder does not exist!")
+    quit()
+if not os.path.isdir(weightpoolfolder):
+    print("Weight pooll weight folder does not exist, the folder will be created")
+    os.mkdir(weightpoolfolder)
+
 
 z_accuracy_list = []
 
 for pool_size in [32,64,128]:
-    cluster_path = "/content/drive/MyDrive/FWNN_data/resnet14_cifar_clustercenter_zdim" + str(pool_size) + ".npy"
+    ccname = "resnet14_cifar_clustercenter_zdim" + str(pool_size) + ".npy"
+    cluster_path = os.path.join(ccfolder,ccname)
     clustercenter = np.load(cluster_path)
     clustercenter = torch.from_numpy(clustercenter)
 
@@ -738,7 +765,7 @@ for pool_size in [32,64,128]:
     val_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size,drop_last=True,
                                             shuffle=False, pin_memory=False, num_workers=workers)
 
-    PATH = '/content/drive/MyDrive/data/resnet14.pth'
+    PATH = os.path.join(weightfolder,'resnet14.pth')
     state_dict=torch.load(PATH)
     #load the weights from original network and copy to the new model
     params1 = state_dict#net.named_parameters()
@@ -755,9 +782,10 @@ for pool_size in [32,64,128]:
     optimizer = torch.optim.Adam(model.parameters(), lr =  init_lr)
     best_prec1 = 0
     total_time = 0
-    SAVEPATH = '/content/drive/MyDrive/data/resnet14_cifar_zdim' + str(pool_size) + '_nofirstlayer.pth'
+    weight_name = 'resnet14_cifar_zdim' + str(pool_size) + '.pth'
+    SAVEPATH = os.path.join(weightpoolfolder,weight_name)
 
-    for epoch in range(100):
+    for epoch in range(n_epoch):
         starttime = time.time()
         adjust_learning_rate(optimizer, epoch, init_lr, 20)
         #lr_schedule(optimizer, epoch)
@@ -782,4 +810,4 @@ for pool_size in [32,64,128]:
         print("epoch time is: ", elapsedtime, "s. Current best accuracy is ", best_prec1)
     z_accuracy_list.append(best_prec1)
 
-print(z_accuracy_list)
+print("the weight pool accuracy for weight pool size of 32, 64 and 128 are ",z_accuracy_list)
