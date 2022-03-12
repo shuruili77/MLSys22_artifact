@@ -114,7 +114,7 @@ CIFAR-10 dataset will be automatically downloaded and processed when executing t
 To download the prepare the Quick Draw dataset, simply run **qd_dataset_prepare.sh** inside the 'accuracy_codes' directory and the dataset will be downloaded and prepared. 
 
 #### Step 2: Uncompressed network training and weight pool generation
-The first step is to train uncompressed networks to generate the 'pre-trained' weights that will be further used to generate weight pools. After training the next step is to generate the weight pool for this network by applying K-means clustering on the trained weights. The uncompressed model training and weight pool generation are combined into a single script. By default three weight pools with sizes 32, 64 and 128. \=]'
+The first step is to train uncompressed networks to generate the 'pre-trained' weights that will be further used to generate weight pools. After training the next step is to generate the weight pool for this network by applying K-means clustering on the trained weights. The uncompressed model training and weight pool generation are combined into a single script. By default three weight pools with sizes 32, 64 and 128.
 
 Before running the scripts, you need to install Pytorch and *kmeans-pytorch* library (check software requirements).
 
